@@ -1,4 +1,5 @@
 import type { Deck, Slide, SlideElement, TimelineEntry } from '@shared/deck.js';
+import { animateMotion } from './motion.js';
 import {
   type Cursor,
   type SlideState,
@@ -1503,6 +1504,7 @@ export class Player {
    * delays, media-end chaining and effects so builds play as authored.
    */
   private playEntries(slide: Slide, entries: ExpandedEntry[], state: SlideState): void {
+    const startedAt = performance.now();
     let cumulativeDelay = 0;
     // An animated build takes time, and "after previous" means after it has
     // finished, as in Keynote: the next one waits until everything started
@@ -1510,11 +1512,12 @@ export class Player {
     // instant ran with it.
     let latestEnd = 0;
     for (const entry of entries) {
+      let scheduledAt: number | undefined;
       this.buildsDue += 1;
       const run = () => {
         this.buildsDue -= 1;
-        const duration = this.runEntry(slide, entry, state);
-        this.animatedUntil = Math.max(this.animatedUntil, performance.now() + duration);
+        const duration = this.runEntry(slide, entry, state, scheduledAt);
+        this.animatedUntil = Math.max(this.animatedUntil, (scheduledAt ?? performance.now()) + duration);
         this.checkSettled();
       };
 
@@ -1532,8 +1535,9 @@ export class Player {
       else if (entry.trigger.on === 'withPrev') {
         // keep cumulativeDelay as-is: fire together with the previous action
       } else cumulativeDelay = entry.trigger.delay;
+      scheduledAt = startedAt + cumulativeDelay;
       const effect = buildEffect(entry, slide);
-      latestEnd = Math.max(latestEnd, cumulativeDelay + (effect ? effectDuration(entry, effect) : 0));
+      latestEnd = Math.max(latestEnd, cumulativeDelay + (effect ? effectDuration(entry, effect) : entry.action.duration ?? 0));
 
       if (cumulativeDelay > 0) this.later(run, cumulativeDelay);
       else run();
@@ -1541,9 +1545,9 @@ export class Player {
   }
 
   /** One entry, live: its action, and the animation it is authored with. Returns how long that animation takes. */
-  private runEntry(slide: Slide, entry: ExpandedEntry, state: SlideState): number {
+  private runEntry(slide: Slide, entry: ExpandedEntry, state: SlideState, scheduledAt?: number): number {
     const effect = buildEffect(entry, slide);
-    const duration = effect ? effectDuration(entry, effect) : 0;
+    const duration = effect ? effectDuration(entry, effect) : entry.action.duration ?? 0;
     const target = entry.action.target;
     // A dissolve out is a copy fading over the spot the element is leaving,
     // so the element itself is hidden at once and the state stays exact.
@@ -1554,7 +1558,8 @@ export class Player {
     const equation = prepareEquationEffect(this.stage, slide, entry, duration);
     applyAction(state, entry, slide);
     this.applyState(slide, state);
-    if (effect === 'draw') this.drawIn(slide, entry, duration);
+    if (effect === 'motion') this.effects.push(animateMotion(this.stage, slide, entry, duration, scheduledAt));
+    else if (effect === 'draw') this.drawIn(slide, entry, duration);
     else if (fade && entry.action.type === 'appear') this.dissolveIn(target, duration, fade === 'blur');
     else if (effect === 'pop') this.popIn(target, duration, popScales(entry));
     if (equation) this.effects.push(equation());

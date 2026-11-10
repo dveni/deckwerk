@@ -77,11 +77,12 @@ export function popScales(entry: TimelineEntry): { from: number; peak: number } 
  * `draw` draws a line or arrow in from its start; `pop` (appear only) grows the
  * element in from smaller, overshoots a little and settles.
  */
-export type BuildEffect = 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis';
+export type BuildEffect = 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis' | 'motion';
 
 /** The effect an entry animates with, or null for an instant change. */
 export function buildEffect(entry: TimelineEntry, slide: Slide): BuildEffect | null {
   const { type, value } = entry.action;
+  if (type === 'motion') return 'motion';
   // A term fades in (or changes colour) and an emphasis swells or wobbles and
   // settles; both take time, so an "after previous" build waits them out like
   // any other.
@@ -224,14 +225,18 @@ export function initiallyHidden(slide: Slide): Set<string> {
   const decided = new Set<string>();
   for (const { action } of slide.timeline) {
     if (action.type !== 'appear' && action.type !== 'disappear') continue;
-    if (decided.has(action.target)) continue;
-    decided.add(action.target);
-    if (action.type === 'appear') hidden.add(action.target);
+    for (const target of action.targets ?? [action.target]) {
+      if (decided.has(target)) continue;
+      decided.add(target);
+      if (action.type === 'appear') hidden.add(target);
+    }
   }
   return hidden;
 }
 
 export interface SlideState {
+  /** Motion offsets from authored layout, optional for legacy state producers. */
+  motion?: Map<string, { x: number; y: number }>;
   /** Ids of elements that should be in the DOM and visible. */
   visible: Set<string>;
   /** Ids of video elements that should be playing. */
@@ -262,6 +267,7 @@ export interface SlideState {
 export function resolveState(slide: Slide, step: number): SlideState {
   const hidden = initiallyHidden(slide);
   const state: SlideState = {
+    motion: new Map(),
     visible: new Set(
       slide.elements.filter((e) => !hidden.has(e.id)).map((e) => e.id),
     ),
@@ -299,6 +305,19 @@ export function applyAction(
   slide: Slide,
 ): void {
   const { type, target, value } = entry.action;
+  if (entry.action.targets && (type === 'appear' || type === 'disappear')) {
+    for (const id of new Set(entry.action.targets)) {
+      applyAction(state, { ...entry, action: { ...entry.action, target: id, targets: undefined } }, slide);
+    }
+    return;
+  }
+  if (type === 'motion' && entry.action.motion) {
+    state.motion ??= new Map();
+    for (const id of entry.action.targets ?? [target]) {
+      state.motion.set(id, { ...entry.action.motion.to });
+    }
+    return;
+  }
   switch (type) {
     case 'appear': {
       const part = (entry as Partial<ExpandedEntry>).part;
