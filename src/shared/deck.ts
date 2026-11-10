@@ -614,6 +614,10 @@ export const TimelineEntrySchema = z.object({
 
 export const SlideSchema = z.object({
   id: Id,
+  /** OOXML advTm: dwell after the last build finishes, not from slide entry. */
+  autoAdvanceMs: z.number().int().min(0).max(2147483647).optional(),
+  /** Disables click-to-leave, not click-triggered builds. */
+  clickAdvance: z.boolean().optional(),
   name: z.string().default(''),
   background: SlideBackgroundSchema.default({ color: null, image: null }),
   notes: z.string().default(''),

@@ -457,8 +457,10 @@ export class Player {
     this.goTo({ slide, step: Math.min(this.cursor.step, steps - 1) });
   }
 
-  next(): void {
+  next(opts: { forceSlide?: boolean } = {}): void {
     const target = nextCursor(this.deck.slides, this.cursor);
+    if (target.slide !== this.cursor.slide && !opts.forceSlide
+      && this.deck.slides[this.cursor.slide]?.clickAdvance === false) return;
     if (target.slide === this.cursor.slide && target.step === this.cursor.step) return;
     // Advancing within a slide plays the new step's build; changing slide is a
     // fresh render.
@@ -727,6 +729,7 @@ export class Player {
     this.applyState(slide, state);
     if (morph && previousSlide) this.runMorph(previousSlide, slide, previousNodes);
     if (played.length > 0) this.playEntries(slide, played, state);
+    if (entering) this.armAutoAdvance();
     this.startLookaheadWhenVisibleSlideCanPaint();
     this.onCursor?.(this.getCursor(), steps);
   }
@@ -1510,6 +1513,7 @@ export class Player {
     // State is tracked incrementally so each action lands on top of what the
     // previous ones did, matching what `resolveState` would produce.
     this.playEntries(slide, groupIntoSteps(slide)[step] ?? [], resolveState(slide, step - 1));
+    this.armAutoAdvance();
     this.onCursor?.(this.getCursor(), stepCount(slide));
   }
 
@@ -2105,7 +2109,26 @@ export class Player {
     this.effects.push(finish);
   }
 
+  private navigationEpoch = 0;
+  private autoAdvanceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Presentation-only dwell: jumps/previews never start an autonomous show. */
+  private armAutoAdvance(): void {
+    const slide = this.deck.slides[this.cursor.slide];
+    if (slide?.autoAdvanceMs === undefined || this.cursor.step !== stepCount(slide) - 1) return;
+    const epoch = this.navigationEpoch;
+    void this.whenStepSettles().then(() => {
+      if (epoch !== this.navigationEpoch) return;
+      this.autoAdvanceTimer = setTimeout(() => {
+        if (epoch === this.navigationEpoch) this.next({ forceSlide: true });
+      }, slide.autoAdvanceMs);
+    });
+  }
+
   private clearPending(): void {
+    this.navigationEpoch += 1;
+    if (this.autoAdvanceTimer !== null) clearTimeout(this.autoAdvanceTimer);
+    this.autoAdvanceTimer = null;
     for (const t of this.pending) clearTimeout(t);
     this.pending = [];
     // The next step (or the next slide) starts from finished animations.
