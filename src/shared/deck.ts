@@ -498,7 +498,7 @@ const LayoutMasterSchema = z.object({
  * land later without a format migration.
  */
 export const TriggerSchema = z.object({
-  on: z.enum(['click', 'afterPrev', 'withPrev', 'mediaEnd']),
+  on: z.enum(['click', 'afterPrev', 'withPrev', 'mediaEnd', 'objectClick']),
   /** Element whose event we wait on. Required for `mediaEnd`. */
   ref: Id.nullable().default(null),
   /** Milliseconds to wait after the trigger fires. */
@@ -511,6 +511,7 @@ export const ActionSchema = z.object({
     'disappear',
     'play',
     'pause',
+    'togglePause',
     'seek',
     'addClass',
     'removeClass',

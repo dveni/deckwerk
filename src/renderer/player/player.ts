@@ -1,11 +1,11 @@
 import type { Deck, Slide, SlideElement, TimelineEntry } from '@shared/deck.js';
 import { animateMotion } from './motion.js';
-import { animateCompositeFade, animateDirectionalWipe } from './nativeBuildEffects.js';
 import {
   type Cursor,
   type SlideState,
   type ExpandedEntry,
   applyAction,
+  expandTimeline,
   buildEffect,
   effectDuration,
   groupIntoSteps,
@@ -29,6 +29,7 @@ import {
 import { syncLengthOf, type SyncLength } from '@shared/compare.js';
 import { mountGroupScrubber } from './groupScrubber.js';
 import { mountWipeDrag } from './wipe.js';
+import { animateCompositeFade, animateDirectionalWipe } from './nativeBuildEffects.js';
 import {
   applyStageScale,
   fitAutoTextElement,
@@ -163,6 +164,8 @@ function textLayout(element: Extract<SlideElement, { type: 'text' }>): string {
 }
 
 export class Player {
+  private consumedSeeks = new WeakMap<HTMLVideoElement, string>();
+  private objectPlayback = new Map<string, boolean>();
   private deck: Deck;
   private container: HTMLElement;
   /** Deck src → URL, preferring a file's in-memory copy once there is one. */
@@ -580,6 +583,8 @@ export class Player {
     const awaited = this.awaitImagesOnTheirWayIntoMemory(rendered);
     revealImagesWhenDecoded(rendered);
     this.stage.replaceChildren(rendered);
+    this.consumedSeeks = new WeakMap();
+    this.objectPlayback.clear();
     this.notifyWebFrames({ source: WEB_BRIDGE_SOURCE, event: 'active', step: this.cursor.step, steps });
 
     // Two passes, because identity has to win globally rather than per node: a
@@ -711,6 +716,14 @@ export class Player {
     const played = waits < 0 ? [] : entry.slice(waits);
     const state = resolveState(slide, played.length > 0 ? -1 : this.cursor.step);
     if (played.length > 0) for (const unit of instant) applyAction(state, unit, slide);
+    // A reused playing decoder must not leak a later frame into a reset before
+    // its first authored seek. Ordinary cross-slide continuation is unchanged.
+    for (const el of slide.elements) {
+      if (el.type !== 'video' || state.seeks.has(el.id)
+        || !slide.timeline.some(entry => entry.action.type === 'seek' && entry.action.target === el.id)) continue;
+      const video = this.videoFor(el.id);
+      if (video && video.dataset.holdFrame !== 'true') video.currentTime = el.start;
+    }
     this.applyState(slide, state);
     if (morph && previousSlide) this.runMorph(previousSlide, slide, previousNodes);
     if (played.length > 0) this.playEntries(slide, played, state);
@@ -1550,6 +1563,18 @@ export class Player {
     const effect = buildEffect(entry, slide);
     const duration = effect ? effectDuration(entry, effect) : entry.action.duration ?? 0;
     const target = entry.action.target;
+    const video = this.videoFor(target);
+    const element = slide.elements.find(el => el.id === target);
+    const explicitStart = entry.action.type === 'play'
+      || (entry.action.type === 'togglePause' && video?.paused);
+    // Only explicit play/toggle may restart an ended clip.
+    if (explicitStart && video && this.playedToEnd(target, video)
+      && element?.type === 'video' && video.dataset.holdFrame !== 'true') video.currentTime = element.start;
+    if (entry.action.type === 'togglePause') {
+      if (video) this.objectPlayback.set(target, video.paused);
+    } else if (entry.action.type === 'play' || entry.action.type === 'pause') {
+      this.objectPlayback.delete(target);
+    }
     // A dissolve out is a copy fading over the spot the element is leaving,
     // so the element itself is hidden at once and the state stays exact.
     const fade = effect === 'dissolve' || effect === 'blur' ? effect : null;
@@ -1667,8 +1692,10 @@ export class Player {
       if (!video) continue;
 
       const seek = state.seeks.get(el.id);
-      if (seek !== undefined && Math.abs(video.currentTime - seek) > 0.05) {
-        video.currentTime = seek;
+      const command = state.seekCommands.get(el.id);
+      if (seek !== undefined && command !== undefined && this.consumedSeeks.get(video) !== command) {
+        if (Math.abs(video.currentTime - seek) > 0.05) video.currentTime = seek;
+        this.consumedSeeks.set(video, command);
       }
 
       this.enforceTrim(el, video);
@@ -1684,7 +1711,8 @@ export class Player {
       // Pooled videos arrive with whatever speed their last slide left them at.
       if (video.playbackRate !== this.videoRate) video.playbackRate = this.videoRate;
 
-      if (state.playing.has(el.id) && state.visible.has(el.id) && !this.blanked) {
+      if ((this.objectPlayback.get(el.id) ?? state.playing.has(el.id)) && state.visible.has(el.id)
+        && !this.blanked && !this.playedToEnd(el.id, video)) {
         this.keepPlaying(el.id, video);
       } else {
         this.intendedPlaying.delete(el.id);
@@ -1739,6 +1767,21 @@ export class Player {
     const root = this.stage.firstElementChild as HTMLElement | null;
     if (!root) return;
     this.compareMounted = true;
+    for (const entry of expandTimeline(slide)) {
+      if (entry.trigger.on !== 'objectClick' || !entry.trigger.ref) continue;
+      const node = this.nodeFor(entry.trigger.ref);
+      if (!node) continue;
+      const listener = (event: MouseEvent): void => {
+        if (node.style.visibility === 'hidden' || this.blanked) return;
+        event.stopPropagation();
+        event.preventDefault();
+        const run = (): void => { this.runEntry(slide, entry, resolveState(slide, this.cursor.step)); };
+        if (entry.trigger.delay) this.later(run, entry.trigger.delay);
+        else run();
+      };
+      node.addEventListener('click', listener);
+      this.mediaListeners.push(() => node.removeEventListener('click', listener));
+    }
     this.mediaListeners.push(mountWipeDrag(root));
     for (const [group, members] of groups) {
       if (!this.groupClockOf(members)) continue;

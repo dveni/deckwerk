@@ -207,6 +207,7 @@ export function expandTimeline(slide: Slide): ExpandedEntry[] {
 export function groupIntoSteps(slide: Slide): ExpandedEntry[][] {
   const steps: ExpandedEntry[][] = [[]];
   for (const entry of expandTimeline(slide)) {
+    if (entry.trigger.on === 'objectClick') continue;
     if (entry.trigger.on === 'click') steps.push([entry]);
     else steps[steps.length - 1].push(entry);
   }
@@ -251,6 +252,8 @@ export interface SlideState {
   classes: Map<string, Set<string>>;
   /** Seek positions in seconds requested by `seek` actions. */
   seeks: Map<string, number>;
+  /** Identity of each last seek command, not a continuously pinned playback time. */
+  seekCommands: Map<string, string>;
   /** For by-paragraph targets: how many leading paragraphs are revealed. */
   parts: Map<string, number>;
   /** For equations with term builds: which terms are still hidden, and term colours. */
@@ -285,6 +288,7 @@ export function resolveState(slide: Slide, step: number): SlideState {
     // Seeded with the authored classes so `removeClass` can take one away.
     classes: new Map(slide.elements.map((e) => [e.id, new Set(e.class)])),
     seeks: new Map(),
+    seekCommands: new Map(),
     // Seeding every by-paragraph target at zero tells the renderers which
     // elements need per-paragraph reconciliation even before their first step.
     parts: new Map(
@@ -345,11 +349,18 @@ export function applyAction(
     case 'play':
       state.playing.add(target);
       break;
+    case 'togglePause':
+      if (state.playing.has(target)) state.playing.delete(target);
+      else state.playing.add(target);
+      break;
     case 'pause':
       state.playing.delete(target);
       break;
     case 'seek':
-      if (typeof value === 'number') state.seeks.set(target, value);
+      if (typeof value === 'number') {
+        state.seeks.set(target, value);
+        state.seekCommands.set(target, entry.id);
+      }
       break;
     case 'addClass':
       if (typeof value === 'string') classSet(state, target).add(value);
