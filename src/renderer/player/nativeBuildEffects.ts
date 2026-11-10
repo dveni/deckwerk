@@ -30,3 +30,10 @@ export function animateCompositeFade(nodes: HTMLElement[], duration: number): ()
   return () => { if (!cleaned) animation.finish(); cleanup(); };
 }
 
+/** Clip before the element transform, preserving the source object's local wipe direction. */
+export function animateDirectionalWipe(node: HTMLElement, direction: 'down' | 'up' | 'left' | 'right', duration: number): () => void {
+  if (!node.animate || duration <= 0) return () => {};
+  const hidden = { down: 'inset(0 0 100% 0)', up: 'inset(100% 0 0 0)', right: 'inset(0 100% 0 0)', left: 'inset(0 0 0 100%)' }[direction];
+  const animation = node.animate([{ clipPath: hidden }, { clipPath: 'inset(0 0 0 0)' }], { duration, easing: 'linear', fill: 'none' });
+  return () => animation.finish();
+}

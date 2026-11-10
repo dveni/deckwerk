@@ -77,7 +77,7 @@ export function popScales(entry: TimelineEntry): { from: number; peak: number } 
  * `draw` draws a line or arrow in from its start; `pop` (appear only) grows the
  * element in from smaller, overshoots a little and settles.
  */
-export type BuildEffect = 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis' | 'motion';
+export type BuildEffect = 'wipe' | 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis' | 'motion';
 
 /** The effect an entry animates with, or null for an instant change. */
 export function buildEffect(entry: TimelineEntry, slide: Slide): BuildEffect | null {
@@ -91,6 +91,7 @@ export function buildEffect(entry: TimelineEntry, slide: Slide): BuildEffect | n
   if ((value === 'dissolve' || value === 'blur') && (type === 'appear' || type === 'disappear')) {
     return value;
   }
+  if (value === 'wipe' && type === 'appear') return 'wipe';
   if (value === 'pop' && type === 'appear') return 'pop';
   if (isDrawBuild(entry, slide)) return 'draw';
   return null;
@@ -103,6 +104,7 @@ export function effectDuration(entry: TimelineEntry, effect: BuildEffect): numbe
       : effect === 'emphasis' ? defaultEmphasisDuration(entry.action.type as EmphasisType)
       : effect === 'draw' ? DEFAULT_DRAW_DURATION
       : effect === 'blur' ? DEFAULT_BLUR_DURATION
+      : effect === 'wipe' ? 500
       : effect === 'pop' ? DEFAULT_POP_DURATION : DEFAULT_DISSOLVE_DURATION);
 }
 

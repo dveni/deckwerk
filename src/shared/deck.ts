@@ -525,6 +525,8 @@ export const ActionSchema = z.object({
     'motion',
   ]),
   target: Id,
+  /** Local-coordinate direction for a wipe entrance. */
+  direction: z.enum(['down', 'up', 'left', 'right']).optional(),
   /** One source group is one action and one clock, not a serialized fan-out. */
   targets: z.array(Id).min(1).optional(),
   /** Canvas-pixel offsets from authored layout; not offsets from the last endpoint. */
@@ -601,7 +603,7 @@ export const TimelineEntrySchema = z.object({
     || new Set(action.targets).size !== action.targets.length
     || (action.type !== 'motion'
       && !((action.type === 'appear' || action.type === 'disappear') && action.value === null)
-      && !(action.type === 'appear' && (action.value === 'dissolve')))
+      && !(action.type === 'appear' && (action.value === 'dissolve' || action.value === 'wipe')))
   )) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'targets'], message: 'group targets require unique members including target, and motion, instant visibility, or supported entrance effect' });
   }

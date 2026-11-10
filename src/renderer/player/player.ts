@@ -1,6 +1,6 @@
 import type { Deck, Slide, SlideElement, TimelineEntry } from '@shared/deck.js';
 import { animateMotion } from './motion.js';
-import { animateCompositeFade } from './nativeBuildEffects.js';
+import { animateCompositeFade, animateDirectionalWipe } from './nativeBuildEffects.js';
 import {
   type Cursor,
   type SlideState,
@@ -1560,7 +1560,12 @@ export class Player {
     applyAction(state, entry, slide);
     this.applyState(slide, state);
     if (effect === 'motion') this.effects.push(animateMotion(this.stage, slide, entry, duration, scheduledAt));
-    else if (effect === 'draw') this.drawIn(slide, entry, duration);
+    else if (effect === 'wipe') {
+      for (const id of entry.action.targets ?? [target]) {
+        const node = this.nodeFor(id);
+        if (node) this.effects.push(animateDirectionalWipe(node, entry.action.direction ?? 'down', duration));
+      }
+    } else if (effect === 'draw') this.drawIn(slide, entry, duration);
     else if (fade && entry.action.type === 'appear') {
       if (entry.action.targets && fade === 'dissolve') {
         const nodes = entry.action.targets.map(id => this.nodeFor(id)).filter((node): node is HTMLElement => node !== null);
