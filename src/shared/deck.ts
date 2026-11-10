@@ -599,9 +599,11 @@ export const TimelineEntrySchema = z.object({
   if (action.targets && (
     !action.targets.includes(action.target)
     || new Set(action.targets).size !== action.targets.length
-    || (action.type !== 'motion' && !((action.type === 'appear' || action.type === 'disappear') && action.value === null))
+    || (action.type !== 'motion'
+      && !((action.type === 'appear' || action.type === 'disappear') && action.value === null)
+      && !(action.type === 'appear' && (action.value === 'dissolve')))
   )) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'targets'], message: 'group targets require unique members including target, and motion or instant visibility' });
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'targets'], message: 'group targets require unique members including target, and motion, instant visibility, or supported entrance effect' });
   }
 });
 

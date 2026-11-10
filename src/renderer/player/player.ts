@@ -1,5 +1,6 @@
 import type { Deck, Slide, SlideElement, TimelineEntry } from '@shared/deck.js';
 import { animateMotion } from './motion.js';
+import { animateCompositeFade } from './nativeBuildEffects.js';
 import {
   type Cursor,
   type SlideState,
@@ -1560,7 +1561,12 @@ export class Player {
     this.applyState(slide, state);
     if (effect === 'motion') this.effects.push(animateMotion(this.stage, slide, entry, duration, scheduledAt));
     else if (effect === 'draw') this.drawIn(slide, entry, duration);
-    else if (fade && entry.action.type === 'appear') this.dissolveIn(target, duration, fade === 'blur');
+    else if (fade && entry.action.type === 'appear') {
+      if (entry.action.targets && fade === 'dissolve') {
+        const nodes = entry.action.targets.map(id => this.nodeFor(id)).filter((node): node is HTMLElement => node !== null);
+        this.effects.push(animateCompositeFade(nodes, duration));
+      } else this.dissolveIn(target, duration, fade === 'blur');
+    }
     else if (effect === 'pop') this.popIn(target, duration, popScales(entry));
     if (equation) this.effects.push(equation());
     return duration;
