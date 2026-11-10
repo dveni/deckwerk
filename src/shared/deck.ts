@@ -525,6 +525,8 @@ export const ActionSchema = z.object({
     'motion',
   ]),
   target: Id,
+  /** Explicit zero-based leading paragraph milestone. */
+  paragraph: z.number().int().min(0).optional(),
   /** Local-coordinate direction for a wipe entrance. */
   direction: z.enum(['down', 'up', 'left', 'right']).optional(),
   /** One source group is one action and one clock, not a serialized fan-out. */

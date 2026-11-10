@@ -46,7 +46,7 @@ export interface ExpandedEntry extends TimelineEntry {
 export function isParagraphBuild(entry: TimelineEntry, slide: Slide): boolean {
   return (
     entry.action.type === 'appear' &&
-    entry.action.value === 'byParagraph' &&
+    (entry.action.value === 'byParagraph' || entry.action.paragraph !== undefined) &&
     findElement(slide, entry.action.target)?.type === 'text'
   );
 }
@@ -179,6 +179,10 @@ export function expandTimeline(slide: Slide): ExpandedEntry[] {
     }
     const el = findElement(slide, entry.action.target) as Extract<SlideElement, { type: 'text' }>;
     const count = countParagraphs(el.html);
+    if (entry.action.paragraph !== undefined) {
+      out.push({ ...entry, sourceId: entry.id, part: entry.action.paragraph, partCount: count });
+      continue;
+    }
     for (let part = 0; part < count; part++) {
       out.push({
         id: part === 0 ? entry.id : `${entry.id}#p${part}`,
