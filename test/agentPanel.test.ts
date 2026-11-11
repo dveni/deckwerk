@@ -48,6 +48,16 @@ describe('filesystem agent panel', () => {
     Reflect.deleteProperty(navigator, 'clipboard');
   });
 
+  it('refreshes connection state before copying so a first click cannot copy stale setup instructions', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const panel = new AgentPanel({ api: api(state({ connection: 'ready', existingBridges: [{ id: 'live', host: 'host', mirrorPath: '/existing', label: 'Agent' }] })), currentDeckPath: () => 'talk', connectCommand: 'start another bridge' });
+    await panel.copyConnectCommand();
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/existing'));
+    expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('start another bridge'));
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
   it('hands a local deck root directly to an agent without a connection API', () => {
     const panel = new AgentPanel({
       currentDeckPath: () => '/talk', connectCommand: '/talk', mode: 'local',

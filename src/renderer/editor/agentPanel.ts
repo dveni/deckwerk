@@ -184,12 +184,16 @@ export class AgentPanel {
   }
 
   /**
-   * Copy what the person hands their agent and show the panel with the
-   * outcome on its Copy button. Call it from the click itself: a browser
-   * only lets a page write the clipboard inside a user gesture.
+   * Refresh the authoritative connection snapshot before copying, so even a
+   * first click before the initial SSE arrives cannot start a duplicate bridge.
+   * Clipboard failures leave selectable instructions visible in the panel.
    */
-  copyConnectCommand(): Promise<boolean> {
+  async copyConnectCommand(): Promise<boolean> {
     this.show();
+    if (this.options.api) {
+      try { this.applyState(await this.options.api.getState()); }
+      catch (error) { this.showError(error); return false; }
+    }
     return copyWithFeedback(this.connectCopy, this.connectCommand, this.options.mode ?? 'hosted');
   }
   show(): void {
