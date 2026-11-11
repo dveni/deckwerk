@@ -31,6 +31,7 @@ export class AgentPanel {
   private readonly connectCode: HTMLElement;
   private readonly connectCopy: HTMLButtonElement;
   private connectCommand: string;
+  private baseConnectCommand: string;
   private readonly messages: HTMLElement;
   private readonly error: HTMLElement;
   private readonly scratchpadBar: HTMLElement;
@@ -54,7 +55,7 @@ export class AgentPanel {
 
   constructor(options: AgentPanelOptions) {
     this.options = options;
-    this.connectCommand = options.connectCommand;
+    this.connectCommand = this.baseConnectCommand = options.connectCommand;
     const panel = document.createElement('aside');
     panel.id = 'agent-chat-panel';
     panel.className = 'agent-chat-panel';
@@ -156,9 +157,30 @@ export class AgentPanel {
 
   toggle(): void { this.element.hidden ? this.show() : this.hide(); }
   setConnectCommand(command: string): void {
-    this.connectCommand = command;
-    this.connectCode.textContent = command;
-    if (this.options.mode === 'local') this.connectCode.title = command;
+    this.baseConnectCommand = command;
+    this.updateInstructions();
+  }
+
+  private updateInstructions(): void {
+    const bridges = this.state?.existingBridges ?? [];
+    const connected = bridges.length > 0 || this.state?.connection === 'ready' || Boolean(this.state?.legacyAgentConnections);
+    this.connect.hidden = false;
+    this.connectCommand = connected && this.options.mode !== 'local' ? [
+      'A bridge already exists for this deck. Reuse it; do not start another process for the same mirror.',
+      ...bridges.map(bridge => `Registered mirror: ${bridge.mirrorPath} on host ${bridge.host} (${bridge.label}). This is client-reported metadata, not proof the folder is reachable from here.`),
+      ...(!bridges.length ? ['This older agent connection supplies no verified mirror location. Ask its owner for the actual host and folder; do not invent a path or restart it.'] : []),
+      'If you have authorized access to that host and folder, read its AGENTS.md and coordinate separate files or slides with the existing collaborator. Keep the current bridge running. Shared filesystem watcher edits are attributed to that bridge, not to a new participant.',
+      'Keep your own browser participant and permissions. Never copy another participant\'s credentials, mirror marker, or session identity; do not use their selection as yours. For independent per-participant attribution, use your own authenticated browser editor; the shared filesystem watcher does not provide separate collaborator identities. Do not call retired direct Agent HTTP APIs.',
+      'If your agent is on another machine, that path is not local to it. Ask the owner for authorized access to the existing mirror host. If that is unavailable, use a separate per-participant mirror on your own machine with fresh connection instructions; do not point a second bridge at the existing folder.',
+      'Do not overwrite a collaborator\'s files. Read the latest revision before edits and resolve conflicts; never stop the existing bridge.',
+    ].join('\n\n') : this.baseConnectCommand;
+    this.connectCode.textContent = this.connectCommand;
+    if (this.options.mode === 'local') this.connectCode.title = this.connectCommand;
+    else {
+      const lead = this.connect.querySelector('p');
+      if (lead) lead.textContent = connected ? 'Existing bridge — connection and reuse instructions:'
+        : 'Paste this prompt into your agent (Claude Code, Codex, …). It sets up a live folder mirror of this deck by itself.';
+    }
   }
 
   /**
@@ -198,7 +220,7 @@ export class AgentPanel {
     this.status.textContent = state.connection !== 'ready'
       ? 'Waiting for your agent…' : state.busy ? state.activity ?? 'Working…' : 'Connected';
     this.status.dataset.state = state.connection === 'ready' ? (state.busy ? 'busy' : 'ready') : 'idle';
-    this.connect.hidden = state.connection === 'ready';
+    this.updateInstructions();
     this.error.hidden = !state.error;
     this.error.textContent = state.error ?? '';
     this.renderMessages();

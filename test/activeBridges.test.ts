@@ -54,6 +54,14 @@ it('lists real bridge registrations separately from participants, filters access
     expect(alice.bridges).toHaveLength(1);
     expect(JSON.stringify(alice)).not.toMatch(/Secret title|participant-private|token|commandArgs/);
     expect(JSON.stringify(alice)).not.toContain('participant-browser-one');
+    const forbiddenPanel = await fetch(`${base}/api/agent-panel/state?deck=folder%2Fdemo&participant=participant-shared`, { headers: { 'tailscale-user-login': 'alice@example.test' } });
+    expect(forbiddenPanel.status).toBe(403);
+    const ownPanel = await fetch(`${base}/api/agent-panel/state?deck=folder%2Fdemo&participant=participant-alice`, { headers: { 'tailscale-user-login': 'alice@example.test' } });
+    expect(ownPanel.status).toBe(200);
+    const panel = await ownPanel.json();
+    expect(panel.existingBridges).toHaveLength(1);
+    expect(panel.messages).toEqual([]);
+    expect(panel.connection).toBe('unavailable');
     await bridges[0].close();
     await new Promise(resolve => setTimeout(resolve, 40));
     expect((await list()).bridges).toHaveLength(1);

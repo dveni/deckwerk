@@ -86,6 +86,19 @@ describe('filesystem agent panel', () => {
       .toContain('/draft/source?scratchpad=slides');
   });
 
+  it('keeps join instructions accessible while connected and reuses registered mirror without duplicating bridge', () => {
+    const transport = api(state());
+    const panel = new AgentPanel({ api: transport, currentDeckPath: () => 'talk', connectCommand: 'download and start bridge' });
+    transport.publish(state({ connection: 'ready', existingBridges: [{ id: 'bridge-one', host: 'agent-host', mirrorPath: '/authoritative/mirror', label: 'Existing agent' }] }));
+    expect(panel.element.querySelector<HTMLElement>('.agent-chat-connect')!.hidden).toBe(false);
+    expect(panel.element.textContent).toContain('bridge already exists');
+    expect(panel.element.textContent).toContain('/authoritative/mirror');
+    expect(panel.element.textContent).toContain('another machine');
+    expect(panel.element.querySelector('code')!.textContent).not.toContain('download and start bridge');
+    panel.setConnectCommand('new deck title prompt');
+    expect(panel.element.querySelector('code')!.textContent).not.toContain('new deck title prompt');
+  });
+
   it('keeps an old scratchpad closed when the deck is opened, and opens the next new one', () => {
     for (const node of document.querySelectorAll('.agent-scratchpad-panel')) node.remove();
     const transport = api(state());

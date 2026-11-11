@@ -1530,6 +1530,11 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     // A participant's own local agent is theirs to see by name.
     deckPath: deckId,
     agentName: state.agentName,
+    existingBridges: [...(rooms.get(deckId)?.peers.values() ?? [])]
+      .filter(peer => peer.greeted && peer.agentFor && peer.filesystemBridge && peer.socket.readyState === 1)
+      .map(peer => ({ ...peer.filesystemBridge!, label: peer.state.name })),
+    legacyAgentConnections: [...(rooms.get(deckId)?.peers.values() ?? [])]
+      .filter(peer => peer.greeted && peer.agentFor && !peer.filesystemBridge && peer.socket.readyState === 1).length,
     // These are this server's API routes, not services on the viewer's PC.
     // Desktop callbacks keep their absolute loopback URLs for local tooling.
     scratchpad: state.scratchpad ? {
@@ -2070,6 +2075,17 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     }
     if (deckParam && !(await deckAllowed(identity, deckParam))) {
       return respondJson(response, 403, { error: 'you do not have access to this deck' });
+    }
+    if (identity && deckParam) {
+      const participant = agentSessionParam ?? (path.startsWith('/api/agent-panel/') ? sharedParticipantId(url) : null);
+      if (participant) {
+        const room = await getRoom(deckParam);
+        const owner = room.participantLogins.get(participant);
+        if (owner && owner !== identity.login) {
+          return respondJson(response, 403, { error: 'that participant belongs to someone else' });
+        }
+        room.participantLogins.set(participant, identity.login);
+      }
     }
     // View-only is enforced here, once, for every deck-scoped route: anything
     // that is not a plain read of the deck needs edit rights. Routes that

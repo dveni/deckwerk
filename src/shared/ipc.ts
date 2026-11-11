@@ -221,6 +221,9 @@ export interface AgentPanelState {
   deckPath: string;
   connection: 'ready' | 'unavailable';
   agentName: string | null;
+  /** Server-observed live registrations; safe client-reported mirror metadata. */
+  existingBridges?: Array<{ id: string; host: string; mirrorPath: string; label: string }>;
+  legacyAgentConnections?: number;
   scratchpad: AgentScratchpad | null;
   busy: boolean;
   activity: string | null;

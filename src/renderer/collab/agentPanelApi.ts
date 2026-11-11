@@ -24,6 +24,19 @@ export function createAgentPanelApi(deckId: string): AgentPanelBrowserApi {
     return value as T;
   };
   const events = new EventSource(deckUrl('/api/agent-panel/events'));
+  let closed = false;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  // Bridge registrations are deck-wide while activity/SSE is participant-
+  // scoped. Refresh the safe snapshot so another participant's new bridge
+  // replaces setup instructions without requiring a page reload.
+  const poll = async (): Promise<void> => {
+    try {
+      const state = await request<AgentPanelState>('/api/agent-panel/state');
+      if (!closed) for (const listener of listeners) listener(state);
+    } catch { /* SSE and panel's explicit getState report connectivity. */ }
+    if (!closed) pollTimer = setTimeout(() => void poll(), 2000);
+  };
+  void poll();
   events.onmessage = (event) => {
     const state = JSON.parse(event.data) as AgentPanelState;
     for (const listener of listeners) listener(state);
@@ -34,7 +47,7 @@ export function createAgentPanelApi(deckId: string): AgentPanelBrowserApi {
       onState: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     },
     participantId,
-    close: () => events.close(),
+    close: () => { closed = true; if (pollTimer) clearTimeout(pollTimer); events.close(); },
   };
 }
 
