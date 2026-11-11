@@ -62,6 +62,12 @@ it('lists real bridge registrations separately from participants, filters access
     expect(panel.existingBridges).toHaveLength(1);
     expect(panel.messages).toEqual([]);
     expect(panel.connection).toBe('unavailable');
+    await peer({ name: 'Browser pretending to register', filesystemBridge: { id: '00000000-0000-4000-8000-000000000000', host: 'not-a-bridge', mirrorPath: '/not-real' } });
+    expect((await list()).bridges).toHaveLength(2);
+    await writeDeckAccess(join(rootDir, 'folder/demo'), { owner: 'admin@example.test', visibility: 'private', publicRole: 'edit', sharedWith: [] });
+    const revoked = await list('alice@example.test');
+    expect(revoked).toEqual({ bridges: [], participants: [] });
+    expect((await fetch(`${base}/api/agent-panel/state?deck=folder%2Fdemo&participant=participant-alice`, { headers: { 'tailscale-user-login': 'alice@example.test' } })).status).toBe(403);
     await bridges[0].close();
     await new Promise(resolve => setTimeout(resolve, 40));
     expect((await list()).bridges).toHaveLength(1);
@@ -95,3 +101,19 @@ it('re-registers the same bridge instance after an actual refused reconnect', as
     expect(ids).toEqual([first]);
   } finally { await bridge.close(); await server.close(); await rm(rootDir, { recursive: true, force: true }); await rm(mirror, { recursive: true, force: true }); }
 }, 20000);
+
+it('expires a registered socket that stops answering heartbeat pings', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'bridge-stale-'));
+  await saveDeck(join(rootDir, 'demo'), emptyDeck('Stale'));
+  const server = await startCollabServer({ rootDir, host: '127.0.0.1', port: 0, localAgents: new LocalAgentRegistry() });
+  const base = `http://127.0.0.1:${server.port}`;
+  const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws?deck=demo`, { autoPong: false });
+  try {
+    await new Promise<void>(resolve => socket.once('open', resolve));
+    socket.send(JSON.stringify({ kind: 'hello', version: 1, agentFor: 'participant-stale', filesystemBridge: { id: '00000000-0000-4000-8000-000000000001', host: 'stale-test', mirrorPath: '/declared-test-mirror' } }));
+    await new Promise<void>(resolve => socket.once('message', () => resolve()));
+    expect((await (await fetch(`${base}/api/bridges`)).json()).bridges).toHaveLength(1);
+    await new Promise<void>((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('stale socket was not closed')), 65000); socket.once('close', () => { clearTimeout(timeout); resolve(); }); });
+    expect((await (await fetch(`${base}/api/bridges`)).json()).bridges).toEqual([]);
+  } finally { socket.terminate(); await server.close(); await rm(rootDir, { recursive: true, force: true }); }
+}, 70000);
