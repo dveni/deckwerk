@@ -172,7 +172,14 @@ export function createToolbarSplitButton(
     if (!wrap.contains(event.target as Node)) close();
   };
   const keys = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') close();
+    if (event.key === 'Escape') { close(); trigger.focus(); }
+    if (!menu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role^=menuitem]')];
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
   };
   const open = (): void => {
     menu = document.createElement('div');
