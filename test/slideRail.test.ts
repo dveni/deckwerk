@@ -103,6 +103,15 @@ describe('collaborator presence in the slide rail', () => {
 });
 
 describe('selected slide actions', () => {
+  it('keeps controls beside the active hidden run, including an explicitly collapsed run', () => {
+    const { store, host } = setup();
+    store.commit(deck => { deck.slides[0].skipped = true; deck.slides[1].skipped = true; deck.slides.push({ ...deck.slides[1], id: 'visible-third', skipped: false }); });
+    const active = host.querySelector('.rail-item[data-index="0"]')!;
+    expect(active.nextElementSibling?.classList.contains('rail-actions')).toBe(true);
+    host.querySelector<HTMLButtonElement>('.rail-run-bracket')!.click();
+    expect(host.querySelector('.rail-collapsed')!.nextElementSibling?.classList.contains('rail-actions')).toBe(true);
+  });
+
   it('places actions immediately after the active row on first, middle, and last slides', () => {
     const { store, host } = setup();
     store.commit(deck => { deck.slides.push({ ...deck.slides[1], id: 'slide-3' }); });

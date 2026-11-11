@@ -469,7 +469,11 @@ export class SlideRail {
       // actual selected row, not beneath the whole run.
       const row = children.map(node => node.querySelector(`.rail-item[data-index="${slideIndex}"]`)).find(Boolean);
       if (row) row.after(actions);
-      else children.push(actions); // Explicitly collapsed active run.
+      else {
+        const collapsed = children.findIndex(node => node.classList.contains('rail-collapsed')
+          && slideIndex >= Number(node.dataset.runStart) && slideIndex <= Number(node.dataset.runEnd));
+        children.splice(collapsed >= 0 ? collapsed + 1 : children.length, 0, actions);
+      }
     }
     this.patchChildren(children);
   }
@@ -544,6 +548,8 @@ export class SlideRail {
       .slice(start, end + 1)
       .some((slide) => slideSelection.has(slide.id));
     row.className = `rail-item rail-collapsed${selected ? ' selected' : ''}`;
+    row.dataset.runStart = String(start);
+    row.dataset.runEnd = String(end);
     row.setAttribute('aria-selected', String(selected));
     row.title = `Show hidden slides ${start + 1}–${end + 1}`;
 
