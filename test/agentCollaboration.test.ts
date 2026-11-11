@@ -128,6 +128,64 @@ const withSections = (page: string, blocks: string[]): string =>
   page.replace(/<body>[\s\S]*<\/body>/, () => `<body>\n${blocks.join('\n')}\n</body>`);
 
 for (const kind of BACKENDS) describe.skipIf(!electronBinary)(`an agent working ${kind}`, { timeout: 240_000 }, () => {
+  it.skipIf(kind !== 'hosted')('round-trips native navigation through the downloaded bridge authoring route', async () => {
+    const workspace = await open(kind);
+    const html = await newPage(workspace,
+      '<div data-element-id="native-dwell" data-build="click" data-build-effect="dissolve" data-build-duration="2000" style="width:300px;height:100px;background:#cca855">Native dwell</div>');
+    await workspace.write('native-roundtrip.html', html.replace('<section class="slide"',
+      '<section data-auto-advance-ms="17000" data-click-advance="false" class="slide"'));
+    const added = landed(await apply(workspace, 'native-roundtrip.html'), workspace);
+    expect(added.changes.inserted).toHaveLength(1);
+    const exported = await exportPage(workspace, added.changes.inserted[0]);
+    expect(exported).toContain('native-dwell');
+    expect(exported).toContain('data-auto-advance-ms="17000"');
+    expect(exported).toContain('data-click-advance="false"');
+    expect(exported).toContain('data-build-duration="2000"');
+    await workspace.write('native-roundtrip.html', exported);
+    expect(landed(await apply(workspace, 'native-roundtrip.html'), workspace).applied).toBe(false);
+    await workspace.write('native-roundtrip.html', exported
+      .replace('data-auto-advance-ms="17000"', 'data-auto-advance-ms="18000"')
+      .replace('data-click-advance="false"', 'data-click-advance="true"'));
+    expect(landed(await apply(workspace, 'native-roundtrip.html'), workspace).changes.replaced)
+      .toEqual(added.changes.inserted);
+    const changed = await exportPage(workspace, added.changes.inserted[0]);
+    expect(changed).toContain('data-auto-advance-ms="18000"');
+    expect(changed).toContain('data-click-advance="true"');
+  });
+
+  it.skipIf(kind !== 'hosted')('round-trips grouped native entrances and explicit milestones alongside motion and video', async () => {
+    const workspace = await open(kind);
+    const entry = (id: string, action: Record<string, unknown>, on = 'click', ref: string | null = null) =>
+      ({ id, trigger: { on, ref, delay: 0 }, action: { value: null, ...action } });
+    const timeline = [
+      entry('motion', { type: 'motion', target: 'native-a', targets: ['native-a', 'native-b'], duration: 2000,
+        motion: { from: { x: 0, y: 0 }, to: { x: 530, y: -70 }, accel: 0.25, decel: 0.25 } }),
+      entry('fade', { type: 'appear', target: 'native-a', targets: ['native-a', 'native-b'], value: 'dissolve', duration: 4000 }),
+      entry('wipe', { type: 'appear', target: 'native-wipe', targets: ['native-wipe', 'native-wipe-b'], value: 'wipe', direction: 'right', duration: 4000 }),
+      ...[0, 0, 2].map((paragraph, i) => entry(`paragraph-${i}`, { type: 'appear', target: 'native-paragraphs', paragraph })),
+      entry('toggle', { type: 'togglePause', target: 'native-video' }, 'objectClick', 'native-video'),
+      entry('seek', { type: 'seek', target: 'native-video', value: 6 }),
+      entry('play', { type: 'play', target: 'native-video' }),
+    ];
+    const panel = (id: string, attrs = '') => `<div data-element-id="${id}" data-element="shape" data-shape="rect" ${attrs} style="position:absolute;left:100px;top:350px;width:300px;height:100px;background:#cca855"></div>`;
+    const html = await newPage(workspace,
+      panel('native-a', 'data-build="click" data-build-effect="dissolve" data-build-duration="4000"')
+      + panel('native-b')
+      + panel('native-wipe', 'data-build="click" data-build-effect="wipe" data-build-duration="4000"')
+      + panel('native-wipe-b')
+      + '<div data-element-id="native-paragraphs" data-element="text" data-build="click" style="position:absolute;left:600px;top:350px;width:500px;height:300px"><p>One</p><p>Two</p><p>Three</p></div>'
+      + '<video data-element-id="native-video" src="assets/clip.mp4" style="position:absolute;left:1100px;top:350px;width:400px;height:225px"></video>'
+      + `<script type="application/deckwerk-timeline">${JSON.stringify(timeline)}</script>`);
+    await workspace.write('native-effects.html', html);
+    const added = landed(await apply(workspace, 'native-effects.html'), workspace);
+    const readTimeline = (page: string) => JSON.parse(/<script type="application\/deckwerk-timeline">([\s\S]*?)<\/script>/.exec(page)![1]);
+    const exported = await exportPage(workspace, added.changes.inserted[0]);
+    expect(readTimeline(exported)).toEqual(timeline);
+    await workspace.write('native-effects.html', exported);
+    expect(landed(await apply(workspace, 'native-effects.html'), workspace).applied).toBe(false);
+    expect(readTimeline(await exportPage(workspace, added.changes.inserted[0]))).toEqual(timeline);
+  });
+
   it('adds slides from a new page, stamps their ids, and saving the page again adds nothing', async () => {
     const workspace = await open(kind);
     const before = await workspace.deck();

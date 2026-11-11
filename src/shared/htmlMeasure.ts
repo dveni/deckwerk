@@ -2116,6 +2116,10 @@ export function measureSlides(doc: Document): MeasuredSlide[] {
       ...(stateOf(root, 'timeline') !== undefined ? { timeline: stateOf(root, 'timeline') } : {}),
       background: { color: background, image: image ? image[1] : null },
       morphFromPrevious: root.dataset.morphFromPrevious === 'true',
+      ...(root.dataset.autoAdvanceMs !== undefined
+        ? { autoAdvanceMs: Number(root.dataset.autoAdvanceMs) } : {}),
+      ...(root.dataset.clickAdvance !== undefined
+        ? { clickAdvance: root.dataset.clickAdvance.trim().toLowerCase() !== 'false' } : {}),
       ...(root.dataset.layout !== undefined ? {
         layout: root.dataset.layout,
         // Whether the section paints its own background, rather than wearing

@@ -103,6 +103,8 @@ export interface MeasuredSlide {
   background: { color: string | null; image: string | null };
   morphFromPrevious: boolean;
   morphDuration?: number;
+  autoAdvanceMs?: number;
+  clickAdvance?: boolean;
   /** `data-layout` on the section: one of the deck's fixed layouts. */
   layout?: string;
   /** With `layout`: the section set its own background inline. */
@@ -1261,7 +1263,7 @@ function parseStateBase(value: string | undefined): StateBase | undefined {
   return match ? { notes: match[1], skipped: match[2] === '1', timeline: match[3] } : undefined;
 }
 
-const SLIDE_PROPS = ['name', 'background', 'layout', 'morphFromPrevious', 'morphDuration'] as const;
+const SLIDE_PROPS = ['name', 'background', 'layout', 'morphFromPrevious', 'morphDuration', 'autoAdvanceMs', 'clickAdvance'] as const;
 
 export function slideBase(slide: Slide): SlideBase {
   const elements = new Map(slide.elements.map((element) => [element.id, {
@@ -1283,7 +1285,7 @@ export function slideBase(slide: Slide): SlideBase {
 
 function propsFingerprint(slide: Slide): string {
   return fingerprint(sortedJson(Object.fromEntries(SLIDE_PROPS
-    .map((key) => [key, slide[key] === false ? undefined : slide[key]])))!);
+    .map((key) => [key, key !== 'clickAdvance' && slide[key] === false ? undefined : slide[key]])))!);
 }
 
 /**
@@ -1661,6 +1663,9 @@ export function slideFromMeasured(
     background: measured.background,
     ...(measured.morphFromPrevious ? { morphFromPrevious: true } : {}),
     ...(measured.morphDuration !== undefined ? { morphDuration: measured.morphDuration } : {}),
+    ...(measured.autoAdvanceMs !== undefined
+      ? { autoAdvanceMs: SlideSchema.shape.autoAdvanceMs.parse(measured.autoAdvanceMs) } : {}),
+    ...(measured.clickAdvance !== undefined ? { clickAdvance: measured.clickAdvance } : {}),
     elements,
     timeline,
   };
@@ -2076,8 +2081,8 @@ function trimCollapsible(html: string): string {
  * Builds have no CSS analogue, so they ride on data attributes rather than in
  * a side-channel the author has to keep in sync with the markup.
  */
-function isEffectName(value: unknown): value is 'draw' | 'dissolve' | 'blur' | 'pop' {
-  return value === 'draw' || value === 'dissolve' || value === 'blur' || value === 'pop';
+function isEffectName(value: unknown): value is 'draw' | 'dissolve' | 'blur' | 'pop' | 'wipe' {
+  return value === 'draw' || value === 'dissolve' || value === 'blur' || value === 'pop' || value === 'wipe';
 }
 
 export function buildFromNode(
@@ -2094,7 +2099,7 @@ export function buildFromNode(
   // `data-build-effect` draws a line or arrow in ("draw") or fades anything in
   // ("dissolve"); its time rides beside it.
   const effect = node.dataset.buildEffect;
-  const animated = effect === 'draw' || effect === 'dissolve' || effect === 'blur' || effect === 'pop';
+  const animated = isEffectName(effect);
   const duration = Number(node.dataset.buildDuration);
   return {
     id: `${elementId}-build-${index + 1}`,
@@ -2178,6 +2183,8 @@ export function slideToHtml(slide: Slide, canvas: { w: number; h: number }): str
     + (slide.skipped ? ' data-skipped="true"' : '')
     + (slide.morphFromPrevious ? ' data-morph-from-previous="true"' : '')
     + (slide.morphDuration !== undefined ? ` data-morph-duration="${slide.morphDuration}"` : '')
+    + (slide.autoAdvanceMs !== undefined ? ` data-auto-advance-ms="${slide.autoAdvanceMs}"` : '')
+    + (slide.clickAdvance !== undefined ? ` data-click-advance="${slide.clickAdvance}"` : '')
     + `${background}>\n${body}\n</section>\n`;
 }
 

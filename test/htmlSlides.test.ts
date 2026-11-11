@@ -848,6 +848,29 @@ describe('what a section carries besides its objects', () => {
       ]);
   });
 
+  it('round-trips navigation values including zero and explicit false, and rejects invalid dwell times', () => {
+    for (const autoAdvanceMs of [0, 17000, 2147483647]) {
+      for (const clickAdvance of [false, true]) {
+        const slide = slideFromMeasured({
+          id: null, name: '', notes: '', background: { color: null, image: null },
+          morphFromPrevious: false, nodes: [], autoAdvanceMs, clickAdvance,
+        }, { slideId: 'navigation', usedIds: new Set() });
+        expect(slide).toMatchObject({ autoAdvanceMs, clickAdvance });
+        const html = slideToHtml(slide, { w: 1920, h: 1080 });
+        expect(html).toContain(`data-auto-advance-ms="${autoAdvanceMs}"`);
+        expect(html).toContain(`data-click-advance="${clickAdvance}"`);
+      }
+    }
+    for (const autoAdvanceMs of [-1, 1.5, NaN, Infinity, 2147483648]) {
+      expect(() => slideFromMeasured({
+        id: null, name: '', notes: '', background: { color: null, image: null },
+        morphFromPrevious: false, nodes: [], autoAdvanceMs,
+      }, { slideId: 'invalid', usedIds: new Set() })).toThrow();
+    }
+    expect(buildFromNode(node({ dataset: { build: '1' } }), 'a', 0)).toBeNull();
+    expect(buildFromNode(node({ dataset: { build: 'click' } }), 'a', 0)?.action.type).toBe('appear');
+  });
+
   it('refuses a timeline block that is not a timeline', () => {
     const measured = {
       id: null, name: '', notes: '', background: { color: null, image: null }, morphFromPrevious: false, nodes: [node()],
