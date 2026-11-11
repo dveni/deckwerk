@@ -46,7 +46,7 @@ export interface ExpandedEntry extends TimelineEntry {
 export function isParagraphBuild(entry: TimelineEntry, slide: Slide): boolean {
   return (
     entry.action.type === 'appear' &&
-    entry.action.value === 'byParagraph' &&
+    (entry.action.value === 'byParagraph' || entry.action.paragraph !== undefined) &&
     findElement(slide, entry.action.target)?.type === 'text'
   );
 }
@@ -77,11 +77,12 @@ export function popScales(entry: TimelineEntry): { from: number; peak: number } 
  * `draw` draws a line or arrow in from its start; `pop` (appear only) grows the
  * element in from smaller, overshoots a little and settles.
  */
-export type BuildEffect = 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis';
+export type BuildEffect = 'wipe' | 'draw' | 'dissolve' | 'blur' | 'pop' | 'terms' | 'emphasis' | 'motion';
 
 /** The effect an entry animates with, or null for an instant change. */
 export function buildEffect(entry: TimelineEntry, slide: Slide): BuildEffect | null {
   const { type, value } = entry.action;
+  if (type === 'motion') return 'motion';
   // A term fades in (or changes colour) and an emphasis swells or wobbles and
   // settles; both take time, so an "after previous" build waits them out like
   // any other.
@@ -90,6 +91,7 @@ export function buildEffect(entry: TimelineEntry, slide: Slide): BuildEffect | n
   if ((value === 'dissolve' || value === 'blur') && (type === 'appear' || type === 'disappear')) {
     return value;
   }
+  if (value === 'wipe' && type === 'appear') return 'wipe';
   if (value === 'pop' && type === 'appear') return 'pop';
   if (isDrawBuild(entry, slide)) return 'draw';
   return null;
@@ -102,6 +104,7 @@ export function effectDuration(entry: TimelineEntry, effect: BuildEffect): numbe
       : effect === 'emphasis' ? defaultEmphasisDuration(entry.action.type as EmphasisType)
       : effect === 'draw' ? DEFAULT_DRAW_DURATION
       : effect === 'blur' ? DEFAULT_BLUR_DURATION
+      : effect === 'wipe' ? 500
       : effect === 'pop' ? DEFAULT_POP_DURATION : DEFAULT_DISSOLVE_DURATION);
 }
 
@@ -176,6 +179,10 @@ export function expandTimeline(slide: Slide): ExpandedEntry[] {
     }
     const el = findElement(slide, entry.action.target) as Extract<SlideElement, { type: 'text' }>;
     const count = countParagraphs(el.html);
+    if (entry.action.paragraph !== undefined) {
+      out.push({ ...entry, sourceId: entry.id, part: entry.action.paragraph, partCount: count });
+      continue;
+    }
     for (let part = 0; part < count; part++) {
       out.push({
         id: part === 0 ? entry.id : `${entry.id}#p${part}`,
@@ -200,6 +207,7 @@ export function expandTimeline(slide: Slide): ExpandedEntry[] {
 export function groupIntoSteps(slide: Slide): ExpandedEntry[][] {
   const steps: ExpandedEntry[][] = [[]];
   for (const entry of expandTimeline(slide)) {
+    if (entry.trigger.on === 'objectClick') continue;
     if (entry.trigger.on === 'click') steps.push([entry]);
     else steps[steps.length - 1].push(entry);
   }
@@ -224,14 +232,18 @@ export function initiallyHidden(slide: Slide): Set<string> {
   const decided = new Set<string>();
   for (const { action } of slide.timeline) {
     if (action.type !== 'appear' && action.type !== 'disappear') continue;
-    if (decided.has(action.target)) continue;
-    decided.add(action.target);
-    if (action.type === 'appear') hidden.add(action.target);
+    for (const target of action.targets ?? [action.target]) {
+      if (decided.has(target)) continue;
+      decided.add(target);
+      if (action.type === 'appear') hidden.add(target);
+    }
   }
   return hidden;
 }
 
 export interface SlideState {
+  /** Motion offsets from authored layout, optional for legacy state producers. */
+  motion?: Map<string, { x: number; y: number }>;
   /** Ids of elements that should be in the DOM and visible. */
   visible: Set<string>;
   /** Ids of video elements that should be playing. */
@@ -240,6 +252,8 @@ export interface SlideState {
   classes: Map<string, Set<string>>;
   /** Seek positions in seconds requested by `seek` actions. */
   seeks: Map<string, number>;
+  /** Identity of each last seek command, not a continuously pinned playback time. */
+  seekCommands: Map<string, string>;
   /** For by-paragraph targets: how many leading paragraphs are revealed. */
   parts: Map<string, number>;
   /** For equations with term builds: which terms are still hidden, and term colours. */
@@ -262,6 +276,7 @@ export interface SlideState {
 export function resolveState(slide: Slide, step: number): SlideState {
   const hidden = initiallyHidden(slide);
   const state: SlideState = {
+    motion: new Map(),
     visible: new Set(
       slide.elements.filter((e) => !hidden.has(e.id)).map((e) => e.id),
     ),
@@ -273,6 +288,7 @@ export function resolveState(slide: Slide, step: number): SlideState {
     // Seeded with the authored classes so `removeClass` can take one away.
     classes: new Map(slide.elements.map((e) => [e.id, new Set(e.class)])),
     seeks: new Map(),
+    seekCommands: new Map(),
     // Seeding every by-paragraph target at zero tells the renderers which
     // elements need per-paragraph reconciliation even before their first step.
     parts: new Map(
@@ -299,6 +315,19 @@ export function applyAction(
   slide: Slide,
 ): void {
   const { type, target, value } = entry.action;
+  if (entry.action.targets && (type === 'appear' || type === 'disappear')) {
+    for (const id of new Set(entry.action.targets)) {
+      applyAction(state, { ...entry, action: { ...entry.action, target: id, targets: undefined } }, slide);
+    }
+    return;
+  }
+  if (type === 'motion' && entry.action.motion) {
+    state.motion ??= new Map();
+    for (const id of entry.action.targets ?? [target]) {
+      state.motion.set(id, { ...entry.action.motion.to });
+    }
+    return;
+  }
   switch (type) {
     case 'appear': {
       const part = (entry as Partial<ExpandedEntry>).part;
@@ -320,11 +349,18 @@ export function applyAction(
     case 'play':
       state.playing.add(target);
       break;
+    case 'togglePause':
+      if (state.playing.has(target)) state.playing.delete(target);
+      else state.playing.add(target);
+      break;
     case 'pause':
       state.playing.delete(target);
       break;
     case 'seek':
-      if (typeof value === 'number') state.seeks.set(target, value);
+      if (typeof value === 'number') {
+        state.seeks.set(target, value);
+        state.seekCommands.set(target, entry.id);
+      }
       break;
     case 'addClass':
       if (typeof value === 'string') classSet(state, target).add(value);

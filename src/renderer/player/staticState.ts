@@ -1,4 +1,5 @@
 import type { Slide } from '@shared/deck.js';
+import { motionOwnsPosition } from './motion.js';
 import { applyParagraphVisibility } from '@shared/paragraphs.js';
 import type { SlideState } from '@shared/timeline.js';
 import { curvedShadowClasses } from '@shared/shapeShadow.js';
@@ -26,6 +27,11 @@ export function applyStaticSlideState(
   for (const element of slide.elements) {
     const node = nodes.get(element.id);
     if (!node) continue;
+    if (!motionOwnsPosition(node)) {
+      const offset = state.motion?.get(element.id);
+      node.style.left = `${element.x + (offset?.x ?? 0)}px`;
+      node.style.top = `${element.y + (offset?.y ?? 0)}px`;
+    }
     const visible = state.visible.has(element.id);
     node.style.visibility = visible ? 'visible' : 'hidden';
     node.style.pointerEvents = visible ? '' : 'none';

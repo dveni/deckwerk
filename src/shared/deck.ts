@@ -498,7 +498,7 @@ const LayoutMasterSchema = z.object({
  * land later without a format migration.
  */
 export const TriggerSchema = z.object({
-  on: z.enum(['click', 'afterPrev', 'withPrev', 'mediaEnd']),
+  on: z.enum(['click', 'afterPrev', 'withPrev', 'mediaEnd', 'objectClick']),
   /** Element whose event we wait on. Required for `mediaEnd`. */
   ref: Id.nullable().default(null),
   /** Milliseconds to wait after the trigger fires. */
@@ -511,6 +511,7 @@ export const ActionSchema = z.object({
     'disappear',
     'play',
     'pause',
+    'togglePause',
     'seek',
     'addClass',
     'removeClass',
@@ -522,8 +523,22 @@ export const ActionSchema = z.object({
     'jiggle',
     'pop',
     'lines',
+    'motion',
   ]),
   target: Id,
+  /** Explicit zero-based leading paragraph milestone. */
+  paragraph: z.number().int().min(0).optional(),
+  /** Local-coordinate direction for a wipe entrance. */
+  direction: z.enum(['down', 'up', 'left', 'right']).optional(),
+  /** One source group is one action and one clock, not a serialized fan-out. */
+  targets: z.array(Id).min(1).optional(),
+  /** Canvas-pixel offsets from authored layout; not offsets from the last endpoint. */
+  motion: z.object({
+    from: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    to: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    accel: z.number().min(0).max(1).default(0),
+    decel: z.number().min(0).max(1).default(0),
+  }).refine(m => m.accel + m.decel <= 1, 'accel + decel must not exceed 1').optional(),
   /**
    * Seconds for `seek`; class name for `addClass`/`removeClass`. On `appear`,
    * `"byParagraph"` reveals text a paragraph at a time and `"draw"` draws a
@@ -582,10 +597,27 @@ export const TimelineEntrySchema = z.object({
   id: Id,
   trigger: TriggerSchema,
   action: ActionSchema,
+}).superRefine(({ action }, context) => {
+  if (action.type === 'motion' && !action.motion) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'motion'], message: 'motion requires from/to offsets' });
+  }
+  if (action.targets && (
+    !action.targets.includes(action.target)
+    || new Set(action.targets).size !== action.targets.length
+    || (action.type !== 'motion'
+      && !((action.type === 'appear' || action.type === 'disappear') && action.value === null)
+      && !(action.type === 'appear' && (action.value === 'dissolve' || action.value === 'wipe')))
+  )) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['action', 'targets'], message: 'group targets require unique members including target, and motion, instant visibility, or supported entrance effect' });
+  }
 });
 
 export const SlideSchema = z.object({
   id: Id,
+  /** OOXML advTm: dwell after the last build finishes, not from slide entry. */
+  autoAdvanceMs: z.number().int().min(0).max(2147483647).optional(),
+  /** Disables click-to-leave, not click-triggered builds. */
+  clickAdvance: z.boolean().optional(),
   name: z.string().default(''),
   background: SlideBackgroundSchema.default({ color: null, image: null }),
   notes: z.string().default(''),
