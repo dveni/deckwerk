@@ -1527,6 +1527,19 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     // A participant's own local agent is theirs to see by name.
     deckPath: deckId,
     agentName: state.agentName,
+    // These are this server's API routes, not services on the viewer's PC.
+    // Desktop callbacks keep their absolute loopback URLs for local tooling.
+    scratchpad: state.scratchpad ? {
+      ...state.scratchpad,
+      ...Object.fromEntries(([
+        'sourceUrl', 'importedUrl', 'comparisonUrl', 'sourceContactSheetUrl', 'importedContactSheetUrl',
+      ] as const).map(key => {
+        const raw = state.scratchpad![key];
+        if (!raw) return [key, raw];
+        const url = new URL(raw, `http://127.0.0.1:${boundPort}`);
+        return [key, url.pathname + url.search + url.hash];
+      })),
+    } : null,
   });
 
   const emitSharedAgentState = (state: AgentPanelState, participantId: string): void => {
