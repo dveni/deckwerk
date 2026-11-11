@@ -377,6 +377,13 @@ export class SlideRail {
       item.setAttribute('aria-selected', String(selected));
       if (active) item.scrollIntoView({ block: 'nearest' });
     }
+    const actions = this.host.querySelector<HTMLElement>('.rail-actions');
+    const activeRow = this.host.querySelector<HTMLElement>(`.rail-item[data-index="${slideIndex}"]`);
+    if (actions && activeRow) {
+      activeRow.after(actions);
+      const hide = actions.querySelectorAll('button')[2];
+      if (hide) hide.textContent = deck.slides[slideIndex]?.skipped ? 'Show' : 'Hide';
+    }
     this.highlightedSlideIndex = slideIndex;
     this.highlightedSelection = new Set(slideSelection);
   }
@@ -455,7 +462,15 @@ export class SlideRail {
       ),
       railButton('Delete', () => this.deleteSlide()),
     );
-    children.push(actions);
+    const active = children.findIndex(node => node.matches(`.rail-item[data-index="${slideIndex}"]`));
+    if (active >= 0) children.splice(active + 1, 0, actions);
+    else {
+      // Expanded hidden runs wrap their rows. Keep the controls beside the
+      // actual selected row, not beneath the whole run.
+      const row = children.map(node => node.querySelector(`.rail-item[data-index="${slideIndex}"]`)).find(Boolean);
+      if (row) row.after(actions);
+      else children.push(actions); // Explicitly collapsed active run.
+    }
     this.patchChildren(children);
   }
 

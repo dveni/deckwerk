@@ -102,6 +102,19 @@ describe('collaborator presence in the slide rail', () => {
   });
 });
 
+describe('selected slide actions', () => {
+  it('places actions immediately after the active row on first, middle, and last slides', () => {
+    const { store, host } = setup();
+    store.commit(deck => { deck.slides.push({ ...deck.slides[1], id: 'slide-3' }); });
+    for (const index of [0, 1, 2, 0]) {
+      store.selectSlide(index);
+      const row = host.querySelectorAll('.rail-item')[index];
+      expect(row.nextElementSibling?.classList.contains('rail-actions')).toBe(true);
+      expect(host.querySelectorAll('.rail-actions')).toHaveLength(1);
+    }
+  });
+});
+
 describe('slide activation', () => {
   it('announces an explicit pick even when the active slide is picked again', () => {
     const { host, rail } = setup();
