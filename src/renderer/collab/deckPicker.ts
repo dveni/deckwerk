@@ -753,7 +753,8 @@ export function showDeckPicker(opts: {
     const bridges = document.createElement('section');
     bridges.className = 'deck-picker-bridges';
     bridges.setAttribute('aria-label', 'Active bridges');
-    bridges.style.cssText = 'max-height:180px;overflow:auto;padding:8px 16px;border-top:1px solid #444;font-size:12px';
+    bridges.style.cssText = 'flex:1 0 100%;max-height:180px;overflow:auto;padding:8px 16px;border-top:1px solid #444;font-size:12px';
+    foot.style.flexWrap = 'wrap';
     foot.prepend(bridges);
     mountActiveBridges(bridges);
   }
