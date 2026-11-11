@@ -23,6 +23,7 @@ import { showPdfExportDialog } from '../editor/pdfExportDialog.js';
 import { HistoryPanel } from '../editor/historyPanel.js';
 import { LightTable } from '../editor/lightTable.js';
 import { MediaPanel, installMediaDrop } from '../editor/mediaPanel.js';
+import { createHomeButton } from '../editor/homeNavigation.js';
 import { createHistoryButton, createMediaButton, popoverPanelHost } from '../editor/toolbarPanels.js';
 import { ObjectList } from '../editor/objectList.js';
 import {
@@ -1164,7 +1165,15 @@ function buildToolbar(): void {
     }),
     onStatus: setStatusMessage,
   } : {});
-  left.append(deckWerkButton, deckNameField.element, createHistoryButton(historyHost), divider());
+  left.append(createHomeButton({
+    save: async () => {
+      // End rich-text editing before checking the server acknowledgements.
+      (document.activeElement as HTMLElement | null)?.blur();
+      if (bridge.unconfirmed > 0) throw new Error('Edits are still syncing. Wait for the server before returning Home.');
+    },
+    open: () => { location.href = new URL('/', location.origin).href; },
+    error: setStatusMessage,
+  }), deckWerkButton, deckNameField.element, createHistoryButton(historyHost), divider());
   const fileActions = document.createElement('span');
   fileActions.className = 'toolbar-expanded-file-actions';
   const compactFileEntries: ToolbarPickerEntry[] = [];

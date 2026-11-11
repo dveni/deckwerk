@@ -59,6 +59,7 @@ import { EditorStore } from './store.js';
 import { statusBarText } from './statusBar.js';
 import { BuildPreview } from './buildPreview.js';
 import { TimelinePanel } from './timelinePanel.js';
+import { createHomeButton } from './homeNavigation.js';
 import { WelcomeScreen } from './welcomeScreen.js';
 import { showConfirmDialog } from './confirmDialog.js';
 import { CollabBridge } from '../collab/collabBridge.js';
@@ -619,6 +620,16 @@ function buildToolbar(): void {
   resetTutorialButton.title = 'Put back the tutorial as DeckWerk ships it (undoable)';
   resetTutorialButton.hidden = true;
   left.append(
+    createHomeButton({
+      save: async () => {
+        (document.activeElement as HTMLElement | null)?.blur();
+        await save();
+        if (store.get().dirty) throw new Error('Save this presentation before returning Home.');
+      },
+      // Desktop library uses the native presentation picker, not an HTTP root.
+      open: () => { void openPresentation(); },
+      error: setStatusMessage,
+    }),
     createDeckWerkButton({
       askAgentPrompt: () => window.api.tutorialPrompt(),
       onStatus: setStatusMessage,
