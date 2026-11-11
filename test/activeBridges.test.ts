@@ -71,3 +71,27 @@ it('lists real bridge registrations separately from participants, filters access
     await server.close(); await rm(rootDir, { recursive: true, force: true }); await rm(mirror, { recursive: true, force: true });
   }
 }, 30000);
+
+it('re-registers the same bridge instance after an actual refused reconnect', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'bridge-reconnect-'));
+  const mirror = await mkdtemp(join(tmpdir(), 'bridge-reconnect-mirror-'));
+  await saveDeck(join(rootDir, 'demo'), emptyDeck('Reconnect'));
+  let server = await startCollabServer({ rootDir, host: '127.0.0.1', port: 0, localAgents: new LocalAgentRegistry() });
+  const port = server.port, base = `http://127.0.0.1:${port}`;
+  const bridge = connectAgentBridge({ url: `${base}/?deck=demo&agent=participant-reconnect`, dir: join(mirror, 'deck'), io: { cwd: mirror, out: () => {}, err: () => {} } });
+  try {
+    await bridge.ready;
+    const first = (await (await fetch(`${base}/api/bridges`)).json()).bridges[0].id;
+    await server.close();
+    // The initial reconnect must actually fail before the server comes back.
+    await new Promise(resolve => setTimeout(resolve, 1800));
+    server = await startCollabServer({ rootDir, host: '127.0.0.1', port, localAgents: new LocalAgentRegistry() });
+    let ids: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      ids = (await (await fetch(`${base}/api/bridges`)).json()).bridges.map((b: any) => b.id);
+      if (ids.length) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    expect(ids).toEqual([first]);
+  } finally { await bridge.close(); await server.close(); await rm(rootDir, { recursive: true, force: true }); await rm(mirror, { recursive: true, force: true }); }
+}, 20000);

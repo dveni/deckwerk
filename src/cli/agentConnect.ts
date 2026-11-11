@@ -1036,11 +1036,12 @@ export function connectAgentBridge(options: ConnectOptions): AgentBridge {
       }
       void handleServer(parsed).catch((error) => log(`server message failed: ${message(error)}`));
     });
-    ws.addEventListener('error', () => {
-      // The close event that follows carries the retry; a first failure to
-      // connect at all is reported there too.
-    });
-    ws.addEventListener('close', (event) => {
+    // Node's built-in WebSocket emits error WITHOUT close when a new TCP
+    // connection is refused. Share one idempotent retry path for both.
+    let disconnected = false;
+    const onDisconnected = (event: { code: number; reason: string }): void => {
+      if (disconnected) return;
+      disconnected = true;
       if (socket === ws) socket = null;
       for (const [id, entry] of pending) {
         clearTimeout(entry.timer);
@@ -1081,6 +1082,11 @@ export function connectAgentBridge(options: ConnectOptions): AgentBridge {
         connect();
       }, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+    };
+    ws.addEventListener('close', onDisconnected);
+    ws.addEventListener('error', () => {
+      onDisconnected({ code: 1006, reason: 'connection failed' });
+      try { ws.close(); } catch { /* Already closed after a failed handshake. */ }
     });
   }
 
