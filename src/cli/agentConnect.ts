@@ -1023,7 +1023,8 @@ export function connectAgentBridge(options: ConnectOptions): AgentBridge {
     socket = ws;
     ws.addEventListener('open', () => {
       reconnectDelay = RECONNECT_MIN_MS;
-      send({ kind: 'hello', version: COLLAB_PROTOCOL_VERSION, name, agentFor: target.participantId });
+      send({ kind: 'hello', version: COLLAB_PROTOCOL_VERSION, name, agentFor: target.participantId,
+        filesystemBridge: { id: sessionId, host: hostname(), mirrorPath: dir } });
     });
     ws.addEventListener('message', (event) => {
       let parsed: ServerMessage;

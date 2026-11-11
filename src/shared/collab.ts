@@ -66,6 +66,12 @@ export const ClientHelloSchema = z.object({
   participant: z.string().regex(PARTICIPANT_ID_PATTERN).optional(),
   /** Sent by a local agent bridge: the participant whose agent this peer is. */
   agentFor: z.string().regex(PARTICIPANT_ID_PATTERN).optional(),
+  /** Explicit filesystem bridge registration; absent on legacy agent clients. */
+  filesystemBridge: z.object({
+    id: z.string().uuid(),
+    host: z.string().min(1).max(255).regex(/^[^\x00-\x1f\x7f]+$/),
+    mirrorPath: z.string().min(1).max(2048).regex(/^[^\x00-\x1f\x7f]+$/),
+  }).optional(),
   /** Sent by a presentation surface; see PresenceState.presenting. */
   presenting: z.boolean().optional(),
   /** Sent by the phone client; see PresenceState.device. */

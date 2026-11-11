@@ -194,6 +194,9 @@ interface Peer {
   canComment: boolean;
   /** Set when this peer is a local agent bridge: whose agent it is. */
   agentFor: string | null;
+  filesystemBridge?: { id: string; host: string; mirrorPath: string };
+  connectedAt?: string;
+  lastSeenAt?: string;
 }
 
 /** The edit log's author for a transaction a WebSocket peer sent. */
@@ -2430,6 +2433,32 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       return;
     }
 
+    if (path === '/api/bridges' && request.method === 'GET') {
+      // Re-read the same authorization-filtered catalog as the library on
+      // every poll: revoked access must not retain a bridge/deck-name leak.
+      const visible = await listDecks(identity);
+      const bridges: Array<Record<string, unknown>> = [];
+      const participants: Array<Record<string, unknown>> = [];
+      for (const deck of visible) {
+        const room = rooms.get(deck.id);
+        if (!room || room.relocating) continue;
+        const peers = [...room.peers.values()].filter(peer => peer.greeted && peer.socket.readyState === 1);
+        for (const peer of peers) {
+          if (!peer.filesystemBridge || !peer.agentFor) continue;
+          bridges.push({ ...peer.filesystemBridge, deckId: deck.id, title: deck.title,
+            label: peer.state.name, connectedAt: peer.connectedAt, lastSeenAt: peer.lastSeenAt,
+            status: 'connected', metadataSource: 'client-registration' });
+        }
+        if (peers.length) participants.push({ deckId: deck.id,
+          browserParticipants: new Set(peers.filter(p => !p.agentFor && !p.state.presenting).map(p => p.state.participant ?? p.state.clientId)).size,
+          legacyAgentConnections: peers.filter(p => p.agentFor && !p.filesystemBridge).length,
+        });
+      }
+      response.setHeader('cache-control', 'no-store');
+      respondJson(response, 200, { bridges, participants });
+      return;
+    }
+
     if (path === '/api/decks' && request.method === 'GET') {
       respondJson(response, 200, await listDecks(identity));
       return;
@@ -4460,7 +4489,9 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     };
     room.peers.set(clientId, peer);
 
+    socket.on('pong', () => { peer.lastSeenAt = new Date().toISOString(); });
     socket.on('message', (raw) => {
+      peer.lastSeenAt = new Date().toISOString();
       let message;
       try {
         message = ClientMessageSchema.parse(renameRetiredFields(JSON.parse(String(raw))));
@@ -4506,6 +4537,11 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
         peer.state.name = peer.agentFor && identity ? `${identity.name} · agent` : person;
         peer.state.color = pickColor(room.peers);
         peer.greeted = true;
+        peer.connectedAt ??= new Date().toISOString();
+        peer.lastSeenAt = new Date().toISOString();
+        // A browser/editor socket is never a bridge. Only an admitted agent
+        // explicitly registering a filesystem mirror supplies this evidence.
+        if (peer.agentFor && message.filesystemBridge) peer.filesystemBridge = message.filesystemBridge;
         if (peer.agentFor && localAgents) {
           localAgents.attach(room.session.dir, peer.agentFor, {
             clientId, name: peer.state.name, connectedAt: new Date().toISOString(),
@@ -4694,6 +4730,16 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     });
   }
   unsubscribeSharedAgent = sharedAgent?.subscribe(emitSharedAgentState);
+  // TCP can stay half-open after a machine vanishes. Require a WebSocket
+  // pong within two heartbeat intervals instead of displaying it forever.
+  const bridgeHeartbeat = setInterval(() => {
+    for (const room of rooms.values()) for (const peer of room.peers.values()) {
+      if (!peer.filesystemBridge || peer.socket.readyState !== 1) continue;
+      if (Date.now() - Date.parse(peer.lastSeenAt ?? '') > 45000) peer.socket.terminate();
+      else peer.socket.ping();
+    }
+  }, 15000);
+  bridgeHeartbeat.unref();
   void sweepMedia().catch(() => null);
   // Announce this server to agents working in the folder it serves, at the
   // address this machine reaches it on. A listener bound elsewhere is not
@@ -4728,6 +4774,7 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       for (const room of rooms.values()) broadcast(room, { kind: 'ended' });
     },
     close: async () => {
+      clearInterval(bridgeHeartbeat);
       renditions?.stop();
       wss.close();
       unsubscribeSharedAgent?.();

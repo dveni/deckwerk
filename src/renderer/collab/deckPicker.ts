@@ -14,6 +14,7 @@
  * folder with nothing shared inside it is simply not in the listing.
  */
 import { createToolbarPicker, type ToolbarPickerOption } from '../editor/exportPicker.js';
+import { mountActiveBridges } from './activeBridges.js';
 import { fetchServerTutorial, openServerTutorial } from './tutorialBar.js';
 import { buildZip, type ZipInput } from '../../shared/zip.js';
 
@@ -748,6 +749,14 @@ export function showDeckPicker(opts: {
   box.append(head, columns, list, foot);
   overlay.append(box);
   document.body.append(overlay);
+  if (!current && !folder) {
+    const bridges = document.createElement('section');
+    bridges.className = 'deck-picker-bridges';
+    bridges.setAttribute('aria-label', 'Active bridges');
+    bridges.style.cssText = 'max-height:180px;overflow:auto;padding:8px 16px;border-top:1px solid #444;font-size:12px';
+    foot.prepend(bridges);
+    mountActiveBridges(bridges);
+  }
   // Focusable so the Escape handler above hears the key without a click first.
   box.tabIndex = -1;
   box.focus();
