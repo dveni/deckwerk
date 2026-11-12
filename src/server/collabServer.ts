@@ -2077,7 +2077,9 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       return respondJson(response, 403, { error: 'you do not have access to this deck' });
     }
     if (identity && deckParam) {
-      const participant = agentSessionParam ?? (path.startsWith('/api/agent-panel/') ? sharedParticipantId(url) : null);
+      // Authorize the identifier this route actually consumes, never an
+      // unrelated query parameter that could mask another user's participant.
+      const participant = path.startsWith('/api/agent-panel/') ? sharedParticipantId(url) : agentSessionParam;
       if (participant) {
         const room = await getRoom(deckParam);
         const owner = room.participantLogins.get(participant);
