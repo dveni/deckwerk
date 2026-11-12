@@ -584,12 +584,21 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       sharedAgentStreams.delete(stream);
     }
   }
-  const sharedAgentStreams = new Set<{
+  interface SharedAgentStream {
     deckId: string;
     participantId: string;
+    identity: Identity | null;
+    role: DeckRole | null;
     canManageAccount: boolean;
     response: ServerResponse;
-  }>();
+    pending: Promise<void>;
+  }
+  const sharedAgentStreams = new Set<SharedAgentStream>();
+
+  function closeSharedAgentStream(stream: SharedAgentStream): void {
+    sharedAgentStreams.delete(stream);
+    stream.response.end();
+  }
 
   /**
    * Deck ids are folder paths under the root — "talk", or "clients/acme/talk"
@@ -1550,13 +1559,31 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
     } : null,
   });
 
+  // Queue per subscriber so asynchronous authorization cannot reorder events.
+  // Recheck immediately before writing, including the initial snapshot; queued
+  // work must not resurrect a closed/revoked subscription. Fail closed on I/O.
+  const writeSharedAgentState = (stream: SharedAgentStream, state: AgentPanelState): Promise<void> => {
+    stream.pending = stream.pending.then(async () => {
+      const role = await deckRoleOf(stream.identity, stream.deckId);
+      const owner = rooms.get(stream.deckId)?.participantLogins.get(stream.participantId);
+      if (!sharedAgentStreams.has(stream)) return;
+      if (!isDeckDir(deckDirOf(stream.deckId)) || !role || role !== stream.role
+        || (stream.identity && owner !== stream.identity.login)) {
+        closeSharedAgentStream(stream);
+        return;
+      }
+      stream.response.write(
+        `data: ${JSON.stringify(publicAgentState(state, stream.deckId, stream.canManageAccount))}\n\n`,
+      );
+    }).catch(() => closeSharedAgentStream(stream));
+    return stream.pending;
+  };
+
   const emitSharedAgentState = (state: AgentPanelState, participantId: string): void => {
     for (const stream of sharedAgentStreams) {
       if (stream.participantId !== participantId) continue;
       if (resolve(state.deckPath) !== deckDirOf(stream.deckId)) continue;
-      stream.response.write(
-        `data: ${JSON.stringify(publicAgentState(state, stream.deckId, stream.canManageAccount))}\n\n`,
-      );
+      void writeSharedAgentState(stream, state);
     }
   };
   // Subscribe only after the server owns its port. A failed listen (most
@@ -2415,11 +2442,14 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       const participantId = sharedParticipantId(url);
       if (!participantId) return respondJson(response, 400, { error: 'missing or invalid participant' });
       await getRoom(deckParam);
-      const stream = {
+      const stream: SharedAgentStream = {
         deckId: deckParam,
         participantId,
+        identity,
+        role: await deckRoleOf(identity, deckParam),
         canManageAccount: isHostRequest(request),
         response,
+        pending: Promise.resolve(),
       };
       response.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
@@ -2430,11 +2460,7 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
       sharedAgentStreams.add(stream);
       request.on('close', () => sharedAgentStreams.delete(stream));
       const state = await sharedAgent.getState(deckDirOf(deckParam), participantId);
-      response.write(`data: ${JSON.stringify(publicAgentState(
-        state,
-        deckParam,
-        stream.canManageAccount,
-      ))}\n\n`);
+      await writeSharedAgentState(stream, state);
       return;
     }
 
@@ -2568,6 +2594,12 @@ export async function startCollabServer(options: CollabServerOptions): Promise<R
             return respondJson(response, 400, { error: 'owner must be a login' });
           }
           next.owner = normalizeLogin(payload.owner);
+        }
+        // End old subscriptions before the asynchronous sidecar write. Even
+        // in-flight emissions cannot write after this point. Clients reconnect
+        // under the new visibility, ownership and role (as WebSockets do).
+        for (const stream of sharedAgentStreams) {
+          if (stream.deckId === deckParam) closeSharedAgentStream(stream);
         }
         await writeDeckAccess(deckDir, next);
         // A socket was admitted under the old sidecar; the new one has to
